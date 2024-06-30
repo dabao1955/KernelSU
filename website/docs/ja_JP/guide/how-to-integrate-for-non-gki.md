@@ -53,22 +53,9 @@ KPROBES がまだ有効化されていない場合は、CONFIG_MODULES を有効
 
 まず、KernelSU をカーネルソースツリーに追加してください：
 
-::: code-group
-
 ```sh
-curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 ```
-
-[ main branch(dev)]
-```sh
-curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
-```
-
-[Select tag(Such as v0.5.2)]
-```sh
-curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.5.2
-```
-
 
 :::
 
