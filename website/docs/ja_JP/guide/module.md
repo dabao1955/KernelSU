@@ -180,7 +180,66 @@ KernelSU モジュールは、カスタムリカバリーからのインスト�
 
 インストールプロセスを完全に制御しカスタマイズしたい場合は、`customize.sh` で `SKIPUNZIP=1` と宣言すればデフォルトのインストールステップをすべてスキップできます。そうすることで、`customize.sh` が責任をもってすべてをインストールするようになります。
 
-`customize.sh`スクリプトは、KernelSU の Busybox `ash` シェルで、「スタンドアロンモード」を有効にして実行します。以下の変数と関数が利用可能です：
+`customize.sh`スクリプトは、KernelSU の Busybox `ash` シェルで、「スタンドアロンモード」を有効にして実行します。以下の変数と関数が利用可能です。
+
+### ブートスクリプトプロセスの説明
+以下は、Androidに関連する起動プロセス(一部は省略されています)であり、KernelSU(先頭にアスタリスクが付いています)の操作を含み、これらのモジュールスクリプトの目的をよりよく理解するのに役立ちます:
+
+```txt
+0. BootLoader (nothing on sceen)
+load patched boot.img
+load kernel:
+    - GKI mode: GKI kernel with KernelSU integrated
+    - LKM mode: stock kernel
+...
+1. kernel exec init (oem logo on screen):
+    - GKI mode: stock init
+    - LKM mode: exec ksuinit, insmod kernelsu.ko, exec stock init
+mount /dev, /dev/pts, /proc, /sys, etc.
+property-init -> read default props
+read init.rc
+...
+early-init -> init -> late_init
+early-fs
+   start vold
+fs
+  mount /vendor, /system, /persist, etc.
+post-fs-data
+  *safe mode check
+  *execute general scripts in post-fs-data.d/
+  *load sepolicy.rule
+  *mount tmpfs
+  *execute module scripts post-fs-data.sh
+    **(Zygisk)./bin/zygisk-ptrace64 monitor
+  *(pre)load system.prop (same as `resetprop -n`)
+  *remount modules /system
+  *execute general scripts in post-mount.d/
+  *execute module scripts post-mount.sh
+zygote-start
+load_all_props_action
+  *execute resetprop (actual set props for resetprop with -n option)
+... -> boot
+  class_start core
+    start-service logd, console, vold, etc.
+  class_start main
+    start-service adb, netd (iptables), zygote, etc.
+2. kernel2user init (rom animation on screen, start by service bootanim)
+*execute general scripts in service.d/
+*execute module scripts service.sh
+*set props for resetprop without -p option
+  **(Zygisk) hook zygote (start zygiskd)
+  **(Zygisk) mount zygisksu/module.prop
+start system apps (autostart)
+...
+boot complete (broadcast ACTION_BOOT_COMPLETED event)
+*execute general scripts in boot-completed.d/
+*execute module scripts boot-completed.sh
+3. User operable (lock screen)
+input password to decrypt /data/data
+*actual set props for resetprop with -p option
+start user apps (autostart)
+```
+Android init Languageに興味がある場合は、その[ドキュメント](https://android.googlesource.com/platform/system/core/+/master/init/README.md)を読むことをお勧めします。
 
 #### 変数
 
