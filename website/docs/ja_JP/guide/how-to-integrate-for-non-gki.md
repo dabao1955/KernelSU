@@ -18,8 +18,10 @@ KernelSU は kprobe を使ってカーネルフックを行います。もし *k
 まず、KernelSU をカーネルソースツリーに追加してください：
 
 ```sh
-curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 ```
+
+:::info [KernelSU 1.0 以降のバージョンでは、非 GKI カーネルはサポートされなくなりました。](https://github.com/tiann/KernelSU/issues/1705)最後にサポートされたバージョンは v0.9.5 です。正しいバージョンを使用してください。:::
 
 次に、*kprobe* がカーネル設定で有効になっているか確認してください。もし有効でなければ、これらの設定を追加してください：
 
@@ -295,9 +297,89 @@ index 45306f9ef247..815091ebfca4 100755
  	if (disposition != INPUT_IGNORE_EVENT && type != EV_SYN)
  		add_input_randomness(type, code, value);
 ```
-
-最後に、カーネルを再度ビルドすると、KernelSU が正常に動作するはずです。
-
 :::info 誤ってセーフ モードに入ってしまった場合は、
 手動統合を使用し、`CONFIG_KPROBES` を無効にしない場合、ユーザーは起動後に音量を下げるボタンを押してセーフ モードをトリガーする可能性があります。 したがって、手動統合を使用する場合は、`CONFIG_KPROBES` を無効にする必要があります。
 :::
+
+### ターミナルで 'pm' を実行できませんでしたか?
+
+'fs/devpts/inode.c'を変更する必要があります。
+
+```diff
+diff --git a/fs/devpts/inode.c b/fs/devpts/inode.c
+index 32f6f1c68..d69d8eca2 100644
+--- a/fs/devpts/inode.c
++++ b/fs/devpts/inode.c
+@@ -602,6 +602,8 @@ struct dentry *devpts_pty_new(struct pts_fs_info *fsi, int index, void *priv)
+        return dentry;
+ }
+
++#ifdef CONFIG_KSU
++extern int ksu_handle_devpts(struct inode*);
++#endif
++
+ /**
+  * devpts_get_priv -- get private data for a slave
+  * @pts_inode: inode of the slave
+@@ -610,6 +612,7 @@ struct dentry *devpts_pty_new(struct pts_fs_info *fsi, int index, void *priv)
+  */
+ void *devpts_get_priv(struct dentry *dentry)
+ {
++       #ifdef CONFIG_KSU
++       ksu_handle_devpts(dentry->d_inode);
++       #endif
+        if (dentry->d_sb->s_magic != DEVPTS_SUPER_MAGIC)
+                return NULL;
+        return dentry->d_fsdata;
+```
+
+### path_umountバックポートする方法
+
+5.9 から手動で「path_umount」をバックポートすることで、GKI より前のカーネルでモジュールの umount 機能を動作させることができます。このパッチは参照として使用できます。
+
+```diff
+--- a/fs/namespace.c
++++ b/fs/namespace.c
+@@ -1739,6 +1739,39 @@ static inline bool may_mandlock(void)
+ }
+ #endif
+
++static int can_umount(const struct path *path, int flags)
++{
++	struct mount *mnt = real_mount(path->mnt);
++
++	if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
++		return -EINVAL;
++	if (!may_mount())
++		return -EPERM;
++	if (path->dentry != path->mnt->mnt_root)
++		return -EINVAL;
++	if (!check_mnt(mnt))
++		return -EINVAL;
++	if (mnt->mnt.mnt_flags & MNT_LOCKED) /* Check optimistically */
++		return -EINVAL;
++	if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
++		return -EPERM;
++	return 0;
++}
++
++int path_umount(struct path *path, int flags)
++{
++	struct mount *mnt = real_mount(path->mnt);
++	int ret;
++
++	ret = can_umount(path, flags);
++	if (!ret)
++		ret = do_umount(mnt, flags);
++
++	/* we mustn't call path_put() as that would clear mnt_expiry_mark */
++	dput(path->dentry);
++	mntput_no_expire(mnt);
++	return ret;
++}
+ /*
+  * Now umount can handle mount points as well as block devices.
+  * This is important for filesystems which use unnamed block devices.
+```
+
+最後に、カーネルを再度ビルドすると、KernelSU が正常に動作するはずです。
